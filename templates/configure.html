@@ -3,283 +3,54 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>S3 Web Browser - AWS 配置</title>
-    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
-    <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.7.2/font/bootstrap-icons.css" rel="stylesheet">
-    <style>
-        body {
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            min-height: 100vh;
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-        }
-        .config-container {
-            background: rgba(255, 255, 255, 0.95);
-            border-radius: 15px;
-            box-shadow: 0 15px 35px rgba(0, 0, 0, 0.1);
-            backdrop-filter: blur(10px);
-        }
-        .form-control:focus {
-            border-color: #667eea;
-            box-shadow: 0 0 0 0.2rem rgba(102, 126, 234, 0.25);
-        }
-        .btn-primary {
-            background: linear-gradient(45deg, #667eea, #764ba2);
-            border: none;
-            border-radius: 25px;
-            padding: 12px 30px;
-            font-weight: 600;
-            transition: all 0.3s ease;
-        }
-        .btn-primary:hover {
-            transform: translateY(-2px);
-            box-shadow: 0 5px 15px rgba(102, 126, 234, 0.4);
-        }
-        .alert {
-            border-radius: 10px;
-            border: none;
-        }
-        .form-label {
-            font-weight: 600;
-            color: #333;
-        }
-        .help-text {
-            font-size: 0.875rem;
-            color: #6c757d;
-            margin-top: 5px;
-        }
-    </style>
+    <title>S3 配置</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
 </head>
-<body>
-    <div class="container">
-        <div class="row justify-content-center">
-            <div class="col-md-8 col-lg-6">
-                <div class="config-container p-5 mt-5">
-                    <div class="text-center mb-4">
-                        <i class="bi bi-cloud-arrow-up text-primary" style="font-size: 3rem;"></i>
-                        <h2 class="mt-3 mb-1">S3 Web Browser</h2>
-                        <p class="text-muted">配置您的 AWS 凭证以开始浏览 S3 存储桶</p>
+<body class="bg-light">
+    <div class="container mt-5" style="max-width: 600px;">
+        <div class="card shadow-sm">
+            <div class="card-header bg-primary text-white">
+                <h4 class="mb-0">配置 S3 存储凭证</h4>
+            </div>
+            <div class="card-body">
+                <!-- 错误及提示信息展示区域 -->
+                {% with messages = get_flashed_messages(with_categories=true) %}
+                  {% if messages %}
+                    {% for category, message in messages %}
+                      <div class="alert alert-{{ category if category != 'error' else 'danger' }} alert-dismissible fade show" role="alert">
+                        {{ message }}
+                        <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+                      </div>
+                    {% endfor %}
+                  {% endif %}
+                {% endwith %}
+
+                <form action="/configure" method="POST">
+                    <div class="mb-3">
+                        <label for="aws_access_key_id" class="form-label">AWS Access Key ID *</label>
+                        <input type="text" class="form-control" id="aws_access_key_id" name="aws_access_key_id" required>
                     </div>
 
-                    {% with messages = get_flashed_messages(with_categories=true) %}
-                        {% if messages %}
-                            {% for category, message in messages %}
-                                <div class="alert alert-{{ 'danger' if category == 'error' else 'success' if category == 'success' else 'info' }} alert-dismissible fade show" role="alert">
-                                    <i class="bi bi-{{ 'exclamation-triangle' if category == 'error' else 'check-circle' if category == 'success' else 'info-circle' }}"></i>
-                                    {{ message }}
-                                    <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
-                                </div>
-                            {% endfor %}
-                        {% endif %}
-                    {% endwith %}
-
-                    <form method="POST" id="configForm">
-                        <div class="mb-4">
-                            <label for="access_key" class="form-label">
-                                <i class="bi bi-key"></i> AWS Access Key ID
-                            </label>
-                            <input type="text" class="form-control" id="access_key" name="access_key" 
-                                   placeholder="AKIA..." required>
-                            <div class="help-text">
-                                您的 AWS 访问密钥 ID，通常以 "AKIA" 开头
-                            </div>
-                        </div>
-
-                        <div class="mb-4">
-                            <label for="secret_key" class="form-label">
-                                <i class="bi bi-shield-lock"></i> AWS Secret Access Key
-                            </label>
-                            <input type="password" class="form-control" id="secret_key" name="secret_key" 
-                                   placeholder="输入您的秘密访问密钥" required>
-                            <div class="help-text">
-                                您的 AWS 秘密访问密钥，请妥善保管
-                            </div>
-                        </div>
-
-                        <div class="mb-4">
-                            <label for="region" class="form-label">
-                                <i class="bi bi-geo-alt"></i> AWS 区域
-                            </label>
-                            <select class="form-select" id="region" name="region">
-                                <option value="us-east-1">美国东部 (弗吉尼亚北部) - us-east-1</option>
-                                <option value="us-west-2">美国西部 (俄勒冈) - us-west-2</option>
-                                <option value="eu-west-1">欧洲 (爱尔兰) - eu-west-1</option>
-                                <option value="ap-southeast-1">亚太地区 (新加坡) - ap-southeast-1</option>
-                                <option value="ap-northeast-1">亚太地区 (东京) - ap-northeast-1</option>
-                                <option value="cn-north-1">中国 (北京) - cn-north-1</option>
-                            </select>
-                            <div class="help-text">
-                                选择您的 S3 存储桶所在的区域
-                            </div>
-                        </div>
-
-                        <div class="mb-4">
-                            <label for="endpoint_url" class="form-label">
-                                <i class="bi bi-link-45deg"></i> 自定义端点 URL (可选)
-                            </label>
-                            <input type="url" class="form-control" id="endpoint_url" name="endpoint_url" 
-                                   placeholder="https://s3.amazonaws.com">
-                            <div class="help-text">
-                                如果您使用的是 S3 兼容服务（如 MinIO），请输入自定义端点
-                            </div>
-                        </div>
-
-                        <div class="mb-4">
-                            <div class="form-check">
-                                <input class="form-check-input" type="checkbox" id="remember_config" checked>
-                                <label class="form-check-label" for="remember_config">
-                                    <i class="bi bi-bookmark"></i> 记住配置信息
-                                </label>
-                                <div class="help-text">
-                                    勾选此项将在浏览器中保存您的配置信息，下次访问时自动填充
-                                </div>
-                            </div>
-                        </div>
-
-                        <div class="d-grid gap-2">
-                            <button type="submit" class="btn btn-primary btn-lg">
-                                <i class="bi bi-check-circle"></i> 连接并开始浏览
-                            </button>
-                            <button type="button" class="btn btn-outline-danger" id="clearSavedConfig">
-                                <i class="bi bi-trash"></i> 清除保存的配置
-                            </button>
-                        </div>
-                    </form>
-
-                    <div class="mt-4 text-center">
-                        <small class="text-muted">
-                            <i class="bi bi-shield-check"></i>
-                            您的凭证仅存储在浏览器本地，不会发送到服务器。勾选"记住配置"将在本地保存30天。
-                        </small>
+                    <div class="mb-3">
+                        <label for="aws_secret_access_key" class="form-label">AWS Secret Access Key *</label>
+                        <input type="password" class="form-control" id="aws_secret_access_key" name="aws_secret_access_key" required>
                     </div>
-                </div>
+
+                    <div class="mb-3">
+                        <label for="region_name" class="form-label">Region (默认: us-east-1)</label>
+                        <input type="text" class="form-control" id="region_name" name="region_name" value="us-east-1">
+                    </div>
+
+                    <div class="mb-3">
+                        <label for="endpoint_url" class="form-label">Endpoint URL (兼容 S3/R2/MinIO 时填写，需带 https://)</label>
+                        <input type="url" class="form-control" id="endpoint_url" name="endpoint_url" placeholder="https://s3.us-east-1.amazonaws.com">
+                    </div>
+
+                    <button type="submit" class="btn btn-primary w-100">保存并连接</button>
+                </form>
             </div>
         </div>
     </div>
-
-    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
-    <script>
-        document.addEventListener('DOMContentLoaded', function() {
-            const form = document.getElementById('configForm');
-            const accessKeyInput = document.getElementById('access_key');
-            const secretKeyInput = document.getElementById('secret_key');
-            const regionSelect = document.getElementById('region');
-            const endpointInput = document.getElementById('endpoint_url');
-            const rememberCheckbox = document.getElementById('remember_config');
-            const clearButton = document.getElementById('clearSavedConfig');
-            
-            const STORAGE_KEY = 's3_browser_config';
-
-            // 保存配置到本地存储
-            function saveConfig() {
-                if (rememberCheckbox.checked) {
-                    const config = {
-                        access_key: accessKeyInput.value,
-                        secret_key: secretKeyInput.value,
-                        region: regionSelect.value,
-                        endpoint_url: endpointInput.value,
-                        timestamp: Date.now()
-                    };
-                    localStorage.setItem(STORAGE_KEY, JSON.stringify(config));
-                    console.log('配置已保存到本地存储');
-                } else {
-                    // 如果不记住配置，清除已保存的配置
-                    localStorage.removeItem(STORAGE_KEY);
-                }
-            }
-
-            // 从本地存储加载配置
-            function loadConfig() {
-                try {
-                    const savedConfig = localStorage.getItem(STORAGE_KEY);
-                    if (savedConfig) {
-                        const config = JSON.parse(savedConfig);
-                        
-                        // 检查配置是否过期（30天）
-                        const thirtyDaysAgo = Date.now() - (30 * 24 * 60 * 60 * 1000);
-                        if (config.timestamp && config.timestamp > thirtyDaysAgo) {
-                            accessKeyInput.value = config.access_key || '';
-                            secretKeyInput.value = config.secret_key || '';
-                            regionSelect.value = config.region || 'us-east-1';
-                            endpointInput.value = config.endpoint_url || '';
-                            rememberCheckbox.checked = true;
-                            
-                            // 显示加载提示
-                            showNotification('已自动填充保存的配置信息', 'info');
-                        } else {
-                            // 配置过期，清除
-                            localStorage.removeItem(STORAGE_KEY);
-                        }
-                    }
-                } catch (error) {
-                    console.error('加载保存的配置时出错:', error);
-                    localStorage.removeItem(STORAGE_KEY);
-                }
-            }
-
-            // 清除保存的配置
-            function clearSavedConfig() {
-                if (confirm('确定要清除所有保存的配置信息吗？此操作不可撤销。')) {
-                    localStorage.removeItem(STORAGE_KEY);
-                    accessKeyInput.value = '';
-                    secretKeyInput.value = '';
-                    regionSelect.value = 'us-east-1';
-                    endpointInput.value = '';
-                    rememberCheckbox.checked = true;
-                    showNotification('已清除保存的配置信息', 'success');
-                }
-            }
-
-            // 显示通知
-            function showNotification(message, type = 'info') {
-                // 创建通知元素
-                const notification = document.createElement('div');
-                notification.className = `alert alert-${type} alert-dismissible fade show position-fixed`;
-                notification.style.cssText = 'top: 20px; right: 20px; z-index: 9999; min-width: 300px;';
-                notification.innerHTML = `
-                    <i class="bi bi-${type === 'success' ? 'check-circle' : 'info-circle'}"></i>
-                    ${message}
-                    <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
-                `;
-                
-                document.body.appendChild(notification);
-                
-                // 3秒后自动移除
-                setTimeout(() => {
-                    if (notification.parentNode) {
-                        notification.parentNode.removeChild(notification);
-                    }
-                }, 3000);
-            }
-
-            // 表单提交时保存配置
-            form.addEventListener('submit', function(e) {
-                saveConfig();
-            });
-
-            // 清除按钮事件
-            clearButton.addEventListener('click', clearSavedConfig);
-
-            // 页面加载时自动填充
-            loadConfig();
-
-            // 实时保存（可选）
-            [accessKeyInput, secretKeyInput, regionSelect, endpointInput].forEach(input => {
-                input.addEventListener('input', function() {
-                    // 延迟保存，避免频繁写入
-                    clearTimeout(this.saveTimeout);
-                    this.saveTimeout = setTimeout(saveConfig, 1000);
-                });
-            });
-
-            // 记住配置复选框变化时立即保存
-            rememberCheckbox.addEventListener('change', function() {
-                if (this.checked) {
-                    saveConfig();
-                } else {
-                    localStorage.removeItem(STORAGE_KEY);
-                }
-            });
-        });
-    </script>
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
 </body>
 </html>
