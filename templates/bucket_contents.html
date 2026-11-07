@@ -1,0 +1,569 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>S3 Web Browser - {{ bucket_name }}</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.7.2/font/bootstrap-icons.css" rel="stylesheet">
+    <style>
+        * {
+            -webkit-font-smoothing: antialiased;
+            -moz-osx-font-smoothing: grayscale;
+        }
+        
+        body {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+        }
+        .main-container {
+            background: rgba(255, 255, 255, 0.95);
+            border-radius: 15px;
+            box-shadow: 0 15px 35px rgba(0, 0, 0, 0.1);
+            backdrop-filter: blur(10px);
+        }
+        .file-item, .folder-item {
+            transition: transform 0.2s ease, box-shadow 0.2s ease;
+            border-radius: 8px;
+            transform: translateZ(0);
+            backface-visibility: hidden;
+        }
+        .file-item:hover, .folder-item:hover {
+            background-color: #f8f9fa;
+            transform: translateX(5px) translateZ(0);
+        }
+        .btn-primary {
+            background: linear-gradient(45deg, #667eea, #764ba2);
+            border: none;
+            border-radius: 25px;
+        }
+        .btn-outline-secondary, .btn-outline-info {
+            border-radius: 25px;
+        }
+        .alert {
+            border-radius: 10px;
+            border: none;
+        }
+        .breadcrumb {
+            background: rgba(108, 117, 125, 0.1);
+            border-radius: 10px;
+        }
+        .breadcrumb-item a {
+            color: #667eea;
+            text-decoration: none;
+        }
+        .breadcrumb-item a:hover {
+            text-decoration: underline;
+        }
+        .sort-controls {
+            background: white;
+            border-radius: 10px;
+            padding: 15px;
+            margin-bottom: 20px;
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+        }
+        .sort-btn {
+            border-radius: 20px;
+            padding: 8px 16px;
+            margin: 0 5px;
+            transition: all 0.2s ease;
+            border: 2px solid #e9ecef;
+            background: white;
+            cursor: pointer;
+        }
+        .sort-btn:hover {
+            border-color: #667eea;
+            background: rgba(102, 126, 234, 0.1);
+        }
+        .sort-btn.active {
+            background: linear-gradient(45deg, #667eea, #764ba2);
+            color: white;
+            border-color: #667eea;
+        }
+        .return-search-banner {
+            background: linear-gradient(135deg, rgba(23, 162, 184, 0.1) 0%, rgba(13, 202, 240, 0.1) 100%);
+            border-left: 4px solid #17a2b8;
+            border-radius: 10px;
+            padding: 15px 20px;
+            margin-bottom: 20px;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+        }
+        /* 虚拟滚动优化 */
+        .list-group {
+            max-height: 70vh;
+            overflow-y: auto;
+            scrollbar-width: thin;
+            scrollbar-color: #667eea #f1f1f1;
+        }
+        .list-group::-webkit-scrollbar {
+            width: 8px;
+        }
+        .list-group::-webkit-scrollbar-track {
+            background: #f1f1f1;
+            border-radius: 10px;
+        }
+        .list-group::-webkit-scrollbar-thumb {
+            background: linear-gradient(45deg, #667eea, #764ba2);
+            border-radius: 10px;
+        }
+        /* 分页样式 */
+        .pagination {
+            margin-top: 20px;
+            justify-content: center;
+        }
+        .pagination .page-link {
+            border-radius: 5px;
+            margin: 0 3px;
+            border: 2px solid #e9ecef;
+            color: #667eea;
+        }
+        .pagination .page-link:hover {
+            background: rgba(102, 126, 234, 0.1);
+            border-color: #667eea;
+        }
+        .pagination .page-item.active .page-link {
+            background: linear-gradient(45deg, #667eea, #764ba2);
+            border-color: #667eea;
+        }
+        /* 加载骨架屏 */
+        .skeleton {
+            animation: skeleton-loading 1s linear infinite alternate;
+            border-radius: 8px;
+            margin-bottom: 10px;
+        }
+        @keyframes skeleton-loading {
+            0% {
+                background-color: hsl(200, 20%, 80%);
+            }
+            100% {
+                background-color: hsl(200, 20%, 95%);
+            }
+        }
+        .skeleton-item {
+            height: 70px;
+            margin-bottom: 10px;
+        }
+        /* 加载指示器 */
+        .loading-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 3px;
+            background: linear-gradient(45deg, #667eea, #764ba2);
+            transform: scaleX(0);
+            transform-origin: left;
+            transition: transform 0.3s ease;
+            z-index: 9999;
+        }
+        .loading-overlay.active {
+            transform: scaleX(1);
+        }
+        /* 性能优化 */
+        .file-item, .folder-item {
+            contain: layout style paint;
+        }
+    </style>
+</head>
+<body>
+    <!-- 加载指示器 -->
+    <div class="loading-overlay" id="loadingBar"></div>
+
+    <div class="container-fluid">
+        <div class="row">
+            <div class="col-12">
+                <div class="main-container p-4 mt-3">
+                    <div class="d-flex justify-content-between align-items-center mb-4">
+                        <div>
+                            <h2 class="mb-1">
+                                <i class="bi bi-bucket text-primary"></i>
+                                {{ bucket_name }}
+                            </h2>
+                            <p class="text-muted mb-0">存储桶内容</p>
+                        </div>
+                        <div>
+                            <button class="btn btn-outline-info me-2" onclick="returnToSearch()" id="returnSearchBtn" style="display: none;">
+                                <i class="bi bi-search"></i> 返回搜索
+                            </button>
+                            <a href="{{ url_for('search_page') }}" class="btn btn-primary me-2">
+                                <i class="bi bi-search"></i> 搜索
+                            </a>
+                            <a href="{{ url_for('buckets') }}" class="btn btn-outline-secondary me-2">
+                                <i class="bi bi-arrow-left"></i> 返回存储桶
+                            </a>
+                            <a href="{{ url_for('logout') }}" class="btn btn-outline-secondary">
+                                <i class="bi bi-box-arrow-right"></i> 退出
+                            </a>
+                        </div>
+                    </div>
+
+                    {% with messages = get_flashed_messages(with_categories=true) %}
+                        {% if messages %}
+                            {% for category, message in messages %}
+                                <div class="alert alert-{{ 'danger' if category == 'error' else 'success' if category == 'success' else 'info' }} alert-dismissible fade show" role="alert">
+                                    <i class="bi bi-{{ 'exclamation-triangle' if category == 'error' else 'check-circle' if category == 'success' else 'info-circle' }}"></i>
+                                    {{ message }}
+                                    <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+                                </div>
+                            {% endfor %}
+                        {% endif %}
+                    {% endwith %}
+
+                    <!-- 返回搜索横幅 -->
+                    <div id="searchReturnBanner" class="return-search-banner" style="display: none;">
+                        <div class="d-flex align-items-center justify-content-between">
+                            <div>
+                                <i class="bi bi-info-circle me-2 text-info"></i>
+                                <strong>提示：</strong> 您是从搜索结果跳转过来的
+                            </div>
+                            <div>
+                                <button type="button" class="btn btn-sm btn-info me-2" onclick="returnToSearch()">
+                                    <i class="bi bi-arrow-left"></i> 返回搜索结果
+                                </button>
+                                <button type="button" class="btn btn-sm btn-outline-secondary" onclick="clearReturnState()">
+                                    <i class="bi bi-x"></i> 关闭
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- 面包屑导航 -->
+                    {% if breadcrumbs %}
+                        <nav aria-label="breadcrumb" class="mb-4">
+                            <ol class="breadcrumb">
+                                <li class="breadcrumb-item">
+                                    <a href="{{ url_for('bucket_contents', bucket_name=bucket_name) }}">
+                                        <i class="bi bi-house"></i> 根目录
+                                    </a>
+                                </li>
+                                {% for crumb in breadcrumbs %}
+                                    <li class="breadcrumb-item">
+                                        <a href="{{ url_for('bucket_contents', bucket_name=bucket_name, prefix=crumb.path) }}">
+                                            {{ crumb.name }}
+                                        </a>
+                                    </li>
+                                {% endfor %}
+                            </ol>
+                        </nav>
+                    {% endif %}
+
+                    <!-- 排序和分页控制 -->
+                    {% if folders or files %}
+                        <div class="sort-controls">
+                            <div class="d-flex align-items-center justify-content-between flex-wrap">
+                                <div class="d-flex align-items-center flex-wrap">
+                                    <span class="me-3 fw-bold">
+                                        <i class="bi bi-funnel"></i> 排序方式:
+                                    </span>
+                                    <button class="sort-btn" data-sort="name" data-order="asc" onclick="sortItems('name')">
+                                        <i class="bi bi-sort-alpha-down"></i> 名称
+                                    </button>
+                                    <button class="sort-btn" data-sort="size" data-order="desc" onclick="sortItems('size')">
+                                        <i class="bi bi-file-earmark"></i> 大小
+                                    </button>
+                                    <button class="sort-btn active desc" data-sort="date" data-order="desc" onclick="sortItems('date')">
+                                        <i class="bi bi-clock"></i> 时间
+                                    </button>
+                                </div>
+                                <div class="d-flex align-items-center">
+                                    <span class="text-muted small me-3">
+                                        显示: 第 {{ (current_page - 1) * per_page + 1 }} - {{ min(current_page * per_page, total_files) }} 项，共 {{ total_files }} 项
+                                    </span>
+                                    <select class="form-select form-select-sm" style="width: auto;" onchange="changePerPage(this.value)">
+                                        <option value="50" {{ 'selected' if per_page == 50 else '' }}>50/页</option>
+                                        <option value="100" {{ 'selected' if per_page == 100 else '' }}>100/页</option>
+                                        <option value="200" {{ 'selected' if per_page == 200 else '' }}>200/页</option>
+                                    </select>
+                                </div>
+                            </div>
+                        </div>
+                    {% endif %}
+
+                    <!-- 文件夹列表 -->
+                    {% if folders %}
+                        <div class="mb-4" id="foldersSection">
+                            <h5 class="text-muted mb-3">
+                                <i class="bi bi-folder"></i> 文件夹 (<span id="folderCount">{{ folders|length }}</span>)
+                            </h5>
+                            <div class="list-group" id="foldersList">
+                                {% for folder in folders %}
+                                    <a href="{{ url_for('bucket_contents', bucket_name=bucket_name, prefix=folder.path) }}" 
+                                       class="list-group-item list-group-item-action folder-item" 
+                                       data-name="{{ folder.name }}"
+                                       data-path="{{ folder.path }}">
+                                        <div class="d-flex align-items-center">
+                                            <i class="bi bi-folder-fill text-warning me-3" style="font-size: 1.5rem;"></i>
+                                            <div>
+                                                <h6 class="mb-0">{{ folder.name }}</h6>
+                                                <small class="text-muted">{{ folder.path }}</small>
+                                            </div>
+                                        </div>
+                                    </a>
+                                {% endfor %}
+                            </div>
+                        </div>
+                    {% endif %}
+
+                    <!-- 文件列表 -->
+                    {% if files %}
+                        <div class="mb-4" id="filesSection">
+                            <h5 class="text-muted mb-3">
+                                <i class="bi bi-file-earmark"></i> 文件 (<span id="fileCount">{{ total_files }}</span>)
+                            </h5>
+                            <div class="list-group" id="filesList">
+                                {% for file in files %}
+                                    <div class="list-group-item file-item" 
+                                         data-name="{{ file.name }}"
+                                         data-key="{{ file.key }}"
+                                         data-size="{{ file.size }}"
+                                         data-date="{{ file.last_modified_iso }}">
+                                        <div class="d-flex align-items-center justify-content-between">
+                                            <div class="d-flex align-items-center flex-grow-1" style="min-width: 0;">
+                                                <i class="bi bi-file-earmark text-primary me-3" style="font-size: 1.5rem;"></i>
+                                                <div style="min-width: 0; flex: 1;">
+                                                    <h6 class="mb-0 text-truncate">{{ file.name }}</h6>
+                                                    <small class="text-muted d-block text-truncate">
+                                                        {{ file.key }} | 
+                                                        <span class="file-size">{{ "%.2f"|format(file.size / 1024 / 1024) }} MB</span> | 
+                                                        <span class="file-date">{{ file.last_modified.strftime('%Y-%m-%d %H:%M:%S') }}</span>
+                                                    </small>
+                                                </div>
+                                            </div>
+                                            <div class="ms-2">
+                                                <a href="{{ url_for('download_object', bucket_name=bucket_name, object_key=file.key) }}" 
+                                                   class="btn btn-primary btn-sm" target="_blank">
+                                                    <i class="bi bi-download"></i> 下载
+                                                </a>
+                                            </div>
+                                        </div>
+                                    </div>
+                                {% endfor %}
+                            </div>
+
+                            <!-- 分页 -->
+                            {% if total_pages > 1 %}
+                                <nav aria-label="文件分页">
+                                    <ul class="pagination">
+                                        <li class="page-item {{ 'disabled' if current_page == 1 else '' }}">
+                                            <a class="page-link" href="{{ url_for('bucket_contents', bucket_name=bucket_name, prefix=current_prefix, page=current_page-1, per_page=per_page, sort=sort_by, order=sort_order) }}">
+                                                <i class="bi bi-chevron-left"></i>
+                                            </a>
+                                        </li>
+                                        
+                                        {% set start_page = max(1, current_page - 2) %}
+                                        {% set end_page = min(total_pages, current_page + 2) %}
+                                        
+                                        {% if start_page > 1 %}
+                                            <li class="page-item">
+                                                <a class="page-link" href="{{ url_for('bucket_contents', bucket_name=bucket_name, prefix=current_prefix, page=1, per_page=per_page, sort=sort_by, order=sort_order) }}">1</a>
+                                            </li>
+                                            {% if start_page > 2 %}
+                                                <li class="page-item disabled"><span class="page-link">...</span></li>
+                                            {% endif %}
+                                        {% endif %}
+                                        
+                                        {% for page_num in range(start_page, end_page + 1) %}
+                                            <li class="page-item {{ 'active' if page_num == current_page else '' }}">
+                                                <a class="page-link" href="{{ url_for('bucket_contents', bucket_name=bucket_name, prefix=current_prefix, page=page_num, per_page=per_page, sort=sort_by, order=sort_order) }}">{{ page_num }}</a>
+                                            </li>
+                                        {% endfor %}
+                                        
+                                        {% if end_page < total_pages %}
+                                            {% if end_page < total_pages - 1 %}
+                                                <li class="page-item disabled"><span class="page-link">...</span></li>
+                                            {% endif %}
+                                            <li class="page-item">
+                                                <a class="page-link" href="{{ url_for('bucket_contents', bucket_name=bucket_name, prefix=current_prefix, page=total_pages, per_page=per_page, sort=sort_by, order=sort_order) }}">{{ total_pages }}</a>
+                                            </li>
+                                        {% endif %}
+                                        
+                                        <li class="page-item {{ 'disabled' if current_page == total_pages else '' }}">
+                                            <a class="page-link" href="{{ url_for('bucket_contents', bucket_name=bucket_name, prefix=current_prefix, page=current_page+1, per_page=per_page, sort=sort_by, order=sort_order) }}">
+                                                <i class="bi bi-chevron-right"></i>
+                                            </a>
+                                        </li>
+                                    </ul>
+                                </nav>
+                            {% endif %}
+                        </div>
+                    {% endif %}
+
+                    <!-- 空状态 -->
+                    {% if not folders and not files %}
+                        <div class="text-center py-5">
+                            <i class="bi bi-folder-x text-muted" style="font-size: 4rem;"></i>
+                            <h4 class="mt-3 text-muted">此目录为空</h4>
+                            <p class="text-muted">当前路径下没有文件或文件夹</p>
+                        </div>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
+    <script>
+        // 当前排序状态
+        let currentSort = 'date';
+        let currentOrder = 'desc';
+        const bucketName = '{{ bucket_name }}';
+        const currentPrefix = '{{ current_prefix }}';
+
+        // 性能优化：使用 RequestAnimationFrame
+        function smoothScroll(element) {
+            element.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+        }
+
+        // 改变每页显示数量
+        function changePerPage(perPage) {
+            const url = new URL(window.location.href);
+            url.searchParams.set('per_page', perPage);
+            url.searchParams.set('page', 1);
+            window.location.href = url.toString();
+        }
+
+        // 排序函数
+        function sortItems(sortBy) {
+            const url = new URL(window.location.href);
+            
+            if (currentSort === sortBy) {
+                currentOrder = currentOrder === 'asc' ? 'desc' : 'asc';
+            } else {
+                currentSort = sortBy;
+                currentOrder = (sortBy === 'date') ? 'desc' : 'asc';
+            }
+            
+            url.searchParams.set('sort', sortBy);
+            url.searchParams.set('order', currentOrder);
+            url.searchParams.set('page', 1);
+            
+            showLoading();
+            window.location.href = url.toString();
+        }
+
+        // 显示加载指示器
+        function showLoading() {
+            document.getElementById('loadingBar').classList.add('active');
+        }
+
+        // 检查返回搜索状态
+        function checkReturnToSearch() {
+            try {
+                const returnState = sessionStorage.getItem('returnToSearch');
+                if (returnState) {
+                    const returnBtn = document.getElementById('returnSearchBtn');
+                    const banner = document.getElementById('searchReturnBanner');
+                    
+                    if (returnBtn) returnBtn.style.display = 'inline-block';
+                    if (banner) banner.style.display = 'block';
+                }
+            } catch (e) {
+                console.warn('无法检查返回状态:', e);
+            }
+        }
+
+        // 返回搜索页面
+        function returnToSearch() {
+            try {
+                const returnState = sessionStorage.getItem('returnToSearch');
+                if (returnState) {
+                    const state = JSON.parse(returnState);
+                    const params = new URLSearchParams();
+                    if (state.bucket) params.set('bucket', state.bucket);
+                    if (state.path) params.set('path', state.path);
+                    if (state.query) params.set('q', state.query);
+                    window.location.href = `/search?${params.toString()}`;
+                } else {
+                    window.location.href = '/search';
+                }
+            } catch (e) {
+                console.warn('无法返回搜索:', e);
+                window.location.href = '/search';
+            }
+        }
+
+        // 清除返回状态
+        function clearReturnState() {
+            try {
+                sessionStorage.removeItem('returnToSearch');
+                const returnBtn = document.getElementById('returnSearchBtn');
+                const banner = document.getElementById('searchReturnBanner');
+                
+                if (returnBtn) returnBtn.style.display = 'none';
+                if (banner) banner.style.display = 'none';
+            } catch (e) {
+                console.warn('无法清除返回状态:', e);
+            }
+        }
+
+        // 页面加载优化
+        document.addEventListener('DOMContentLoaded', function() {
+            checkReturnToSearch();
+            
+            // 懒加载图片优化
+            if ('IntersectionObserver' in window) {
+                const imageObserver = new IntersectionObserver((entries, observer) => {
+                    entries.forEach(entry => {
+                        if (entry.isIntersecting) {
+                            const item = entry.target;
+                            item.classList.add('visible');
+                            observer.unobserve(item);
+                        }
+                    });
+                });
+
+                document.querySelectorAll('.file-item, .folder-item').forEach(item => {
+                    imageObserver.observe(item);
+                });
+            }
+
+            // 预加载下一页
+            if ({{ current_page }} < {{ total_pages }}) {
+                const nextPageLink = document.querySelector('.pagination .page-item:not(.disabled):last-child a');
+                if (nextPageLink) {
+                    const link = document.createElement('link');
+                    link.rel = 'prefetch';
+                    link.href = nextPageLink.href;
+                    document.head.appendChild(link);
+                }
+            }
+        });
+
+        // 键盘快捷键
+        document.addEventListener('keydown', function(e) {
+            // Alt + 左箭头 = 返回搜索
+            if (e.altKey && e.key === 'ArrowLeft') {
+                e.preventDefault();
+                const returnState = sessionStorage.getItem('returnToSearch');
+                if (returnState) {
+                    returnToSearch();
+                }
+            }
+            // 左箭头 = 上一页
+            if (e.key === 'ArrowLeft' && !e.altKey) {
+                const prevBtn = document.querySelector('.pagination .page-item:first-child a');
+                if (prevBtn && !prevBtn.parentElement.classList.contains('disabled')) {
+                    e.preventDefault();
+                    showLoading();
+                    window.location.href = prevBtn.href;
+                }
+            }
+            // 右箭头 = 下一页
+            if (e.key === 'ArrowRight') {
+                const nextBtn = document.querySelector('.pagination .page-item:last-child a');
+                if (nextBtn && !nextBtn.parentElement.classList.contains('disabled')) {
+                    e.preventDefault();
+                    showLoading();
+                    window.location.href = nextBtn.href;
+                }
+            }
+        });
+
+        // 页面卸载前显示加载条
+        window.addEventListener('beforeunload', function() {
+            showLoading();
+        });
+    </script>
+</body>
+</html>

@@ -1,0 +1,391 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>S3 Web Browser - 存储桶列表</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.7.2/font/bootstrap-icons.css" rel="stylesheet">
+    <style>
+        * {
+            -webkit-font-smoothing: antialiased;
+            -moz-osx-font-smoothing: grayscale;
+        }
+        
+        body {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+        }
+        
+        .main-container {
+            background: rgba(255, 255, 255, 0.95);
+            border-radius: 15px;
+            box-shadow: 0 15px 35px rgba(0, 0, 0, 0.1);
+            backdrop-filter: blur(10px);
+        }
+        
+        .bucket-card {
+            transition: transform 0.2s ease, box-shadow 0.2s ease;
+            border: none;
+            border-radius: 10px;
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+            transform: translateZ(0);
+            backface-visibility: hidden;
+            height: 100%;
+        }
+        
+        .bucket-card:hover {
+            transform: translateY(-5px) translateZ(0);
+            box-shadow: 0 8px 25px rgba(0, 0, 0, 0.15);
+        }
+        
+        .btn-primary {
+            background: linear-gradient(45deg, #667eea, #764ba2);
+            border: none;
+            border-radius: 25px;
+            transition: all 0.2s ease;
+        }
+        
+        .btn-primary:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(102, 126, 234, 0.4);
+        }
+        
+        .btn-outline-secondary {
+            border-radius: 25px;
+        }
+        
+        .alert {
+            border-radius: 10px;
+            border: none;
+        }
+        
+        /* 分页样式 */
+        .pagination {
+            margin-top: 30px;
+            justify-content: center;
+        }
+        
+        .pagination .page-link {
+            border-radius: 5px;
+            margin: 0 3px;
+            border: 2px solid #e9ecef;
+            color: #667eea;
+            transition: all 0.2s ease;
+        }
+        
+        .pagination .page-link:hover {
+            background: rgba(102, 126, 234, 0.1);
+            border-color: #667eea;
+            transform: translateY(-1px);
+        }
+        
+        .pagination .page-item.active .page-link {
+            background: linear-gradient(45deg, #667eea, #764ba2);
+            border-color: #667eea;
+        }
+        
+        .pagination .page-item.disabled .page-link {
+            opacity: 0.5;
+        }
+        
+        /* 统计信息 */
+        .stats-badge {
+            background: linear-gradient(45deg, #667eea, #764ba2);
+            color: white;
+            padding: 10px 20px;
+            border-radius: 25px;
+            font-size: 0.95rem;
+            display: inline-block;
+            margin-bottom: 20px;
+        }
+        
+        /* 加载指示器 */
+        .loading-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 3px;
+            background: linear-gradient(45deg, #667eea, #764ba2);
+            transform: scaleX(0);
+            transform-origin: left;
+            z-index: 9999;
+        }
+        
+        .loading-overlay.active {
+            animation: loading 1s ease-in-out;
+            animation-fill-mode: forwards;
+        }
+        
+        @keyframes loading {
+            0% { transform: scaleX(0); }
+            100% { transform: scaleX(1); }
+        }
+        
+        /* 淡入动画 */
+        .fade-in {
+            animation: fadeIn 0.3s ease-in;
+        }
+        
+        @keyframes fadeIn {
+            from {
+                opacity: 0;
+                transform: translateY(10px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+        
+        /* 分页选择器 */
+        .per-page-selector {
+            display: inline-block;
+            margin-left: 15px;
+        }
+        
+        .per-page-selector select {
+            border-radius: 20px;
+            border: 2px solid #e9ecef;
+            padding: 5px 15px;
+            background: white;
+        }
+        
+        /* 响应式网格 */
+        @media (max-width: 768px) {
+            .row.g-3 {
+                gap: 15px !important;
+            }
+        }
+    </style>
+</head>
+<body>
+    <!-- 加载指示器 -->
+    <div class="loading-overlay" id="loadingBar"></div>
+
+    <div class="container-fluid">
+        <div class="row">
+            <div class="col-12">
+                <div class="main-container p-4 mt-3">
+                    <div class="d-flex justify-content-between align-items-center mb-4">
+                        <div>
+                            <h2 class="mb-1">
+                                <i class="bi bi-cloud text-primary"></i>
+                                S3 存储桶
+                            </h2>
+                            <p class="text-muted mb-0">选择要浏览的存储桶</p>
+                        </div>
+                        <div>
+                            <a href="{{ url_for('logout') }}" class="btn btn-outline-secondary">
+                                <i class="bi bi-box-arrow-right"></i> 退出
+                            </a>
+                        </div>
+                    </div>
+
+                    {% with messages = get_flashed_messages(with_categories=true) %}
+                        {% if messages %}
+                            {% for category, message in messages %}
+                                <div class="alert alert-{{ 'danger' if category == 'error' else 'success' if category == 'success' else 'info' }} alert-dismissible fade show" role="alert">
+                                    <i class="bi bi-{{ 'exclamation-triangle' if category == 'error' else 'check-circle' if category == 'success' else 'info-circle' }}"></i>
+                                    {{ message }}
+                                    <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+                                </div>
+                            {% endfor %}
+                        {% endif %}
+                    {% endwith %}
+
+                    {% if buckets %}
+                        <!-- 统计信息和分页选择 -->
+                        <div class="text-center mb-3">
+                            <div class="stats-badge">
+                                <i class="bi bi-bucket"></i> 
+                                共 {{ total_buckets }} 个存储桶 | 
+                                显示第 {{ (current_page - 1) * per_page + 1 }} - 
+                                {% if current_page * per_page > total_buckets %}
+                                    {{ total_buckets }}
+                                {% else %}
+                                    {{ current_page * per_page }}
+                                {% endif %}
+                                项
+                            </div>
+                            <div class="per-page-selector">
+                                <select class="form-select form-select-sm" onchange="changePerPage(this.value)">
+                                    <option value="20" {{ 'selected' if per_page == 20 else '' }}>20/页</option>
+                                    <option value="50" {{ 'selected' if per_page == 50 else '' }}>50/页</option>
+                                    <option value="100" {{ 'selected' if per_page == 100 else '' }}>100/页</option>
+                                </select>
+                            </div>
+                        </div>
+
+                        <!-- 存储桶网格 -->
+                        <div class="row g-3">
+                            {% for bucket in buckets %}
+                                <div class="col-md-6 col-lg-4 col-xl-3 fade-in">
+                                    <div class="card bucket-card">
+                                        <div class="card-body d-flex flex-column">
+                                            <div class="d-flex align-items-center mb-3">
+                                                <i class="bi bi-bucket text-primary me-3" style="font-size: 2rem;"></i>
+                                                <div class="flex-grow-1" style="min-width: 0;">
+                                                    <h6 class="card-title mb-0 text-truncate" title="{{ bucket['Name'] }}">
+                                                        {{ bucket['Name'] }}
+                                                    </h6>
+                                                    <small class="text-muted">
+                                                        <i class="bi bi-clock"></i> 
+                                                        {{ bucket['CreationDate'].strftime('%Y-%m-%d') }}
+                                                    </small>
+                                                </div>
+                                            </div>
+                                            <div class="mt-auto">
+                                                <a href="{{ url_for('bucket_contents', bucket_name=bucket['Name']) }}" 
+                                                   class="btn btn-primary w-100"
+                                                   onclick="showLoading()">
+                                                    <i class="bi bi-folder2-open"></i> 浏览内容
+                                                </a>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            {% endfor %}
+                        </div>
+
+                        <!-- 分页导航 -->
+                        {% if total_pages > 1 %}
+                            <nav aria-label="存储桶分页">
+                                <ul class="pagination">
+                                    <!-- 上一页 -->
+                                    <li class="page-item {{ 'disabled' if current_page == 1 else '' }}">
+                                        <a class="page-link" 
+                                           href="{{ url_for('buckets', page=current_page-1, per_page=per_page) if current_page > 1 else '#' }}"
+                                           onclick="{% if current_page > 1 %}showLoading(){% endif %}">
+                                            <i class="bi bi-chevron-left"></i> 上一页
+                                        </a>
+                                    </li>
+                                    
+                                    {% set start_page = max(1, current_page - 2) %}
+                                    {% set end_page = min(total_pages, current_page + 2) %}
+                                    
+                                    <!-- 第一页 -->
+                                    {% if start_page > 1 %}
+                                        <li class="page-item">
+                                            <a class="page-link" 
+                                               href="{{ url_for('buckets', page=1, per_page=per_page) }}"
+                                               onclick="showLoading()">
+                                                1
+                                            </a>
+                                        </li>
+                                        {% if start_page > 2 %}
+                                            <li class="page-item disabled">
+                                                <span class="page-link">...</span>
+                                            </li>
+                                        {% endif %}
+                                    {% endif %}
+                                    
+                                    <!-- 页码 -->
+                                    {% for page_num in range(start_page, end_page + 1) %}
+                                        <li class="page-item {{ 'active' if page_num == current_page else '' }}">
+                                            <a class="page-link" 
+                                               href="{{ url_for('buckets', page=page_num, per_page=per_page) }}"
+                                               onclick="showLoading()">
+                                                {{ page_num }}
+                                            </a>
+                                        </li>
+                                    {% endfor %}
+                                    
+                                    <!-- 最后一页 -->
+                                    {% if end_page < total_pages %}
+                                        {% if end_page < total_pages - 1 %}
+                                            <li class="page-item disabled">
+                                                <span class="page-link">...</span>
+                                            </li>
+                                        {% endif %}
+                                        <li class="page-item">
+                                            <a class="page-link" 
+                                               href="{{ url_for('buckets', page=total_pages, per_page=per_page) }}"
+                                               onclick="showLoading()">
+                                                {{ total_pages }}
+                                            </a>
+                                        </li>
+                                    {% endif %}
+                                    
+                                    <!-- 下一页 -->
+                                    <li class="page-item {{ 'disabled' if current_page == total_pages else '' }}">
+                                        <a class="page-link" 
+                                           href="{{ url_for('buckets', page=current_page+1, per_page=per_page) if current_page < total_pages else '#' }}"
+                                           onclick="{% if current_page < total_pages %}showLoading(){% endif %}">
+                                            下一页 <i class="bi bi-chevron-right"></i>
+                                        </a>
+                                    </li>
+                                </ul>
+                            </nav>
+                        {% endif %}
+                    {% else %}
+                        <!-- 空状态 -->
+                        <div class="text-center py-5">
+                            <i class="bi bi-cloud-slash text-muted" style="font-size: 4rem;"></i>
+                            <h4 class="mt-3 text-muted">没有找到存储桶</h4>
+                            <p class="text-muted">请检查您的 AWS 凭证和权限设置</p>
+                            <a href="{{ url_for('configure') }}" class="btn btn-primary">
+                                <i class="bi bi-gear"></i> 重新配置
+                            </a>
+                        </div>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
+    <script>
+        // 显示加载指示器
+        function showLoading() {
+            document.getElementById('loadingBar').classList.add('active');
+        }
+
+        // 改变每页显示数量
+        function changePerPage(perPage) {
+            showLoading();
+            const url = new URL(window.location.href);
+            url.searchParams.set('per_page', perPage);
+            url.searchParams.set('page', 1);
+            window.location.href = url.toString();
+        }
+
+        // 键盘快捷键
+        document.addEventListener('keydown', function(e) {
+            const currentPage = {{ current_page }};
+            const totalPages = {{ total_pages }};
+            
+            // 左箭头 = 上一页
+            if (e.key === 'ArrowLeft' && currentPage > 1) {
+                e.preventDefault();
+                showLoading();
+                window.location.href = "{{ url_for('buckets', page=current_page-1, per_page=per_page) }}";
+            }
+            
+            // 右箭头 = 下一页
+            if (e.key === 'ArrowRight' && currentPage < totalPages) {
+                e.preventDefault();
+                showLoading();
+                window.location.href = "{{ url_for('buckets', page=current_page+1, per_page=per_page) }}";
+            }
+        });
+
+        // 页面加载完成后移除加载条
+        window.addEventListener('load', function() {
+            setTimeout(() => {
+                const loadingBar = document.getElementById('loadingBar');
+                if (loadingBar) {
+                    loadingBar.classList.remove('active');
+                }
+            }, 300);
+        });
+
+        // 页面卸载前显示加载条
+        window.addEventListener('beforeunload', function() {
+            showLoading();
+        });
+    </script>
+</body>
+</html>
