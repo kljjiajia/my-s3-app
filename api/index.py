@@ -1,5 +1,7 @@
-# File: api/index.py  (Vercel Serverless 版本)
+# File: api/index.py  (Vercel Serverless 版本 - 调试版)
 import os
+import sys
+import traceback
 from functools import lru_cache
 from datetime import datetime
 
@@ -8,13 +10,15 @@ import pytz
 from botocore.config import Config
 from flask import (Flask, render_template, request, redirect, url_for,
                    session, flash, jsonify)
+from markupsafe import escape
+from werkzeug.exceptions import HTTPException
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-TEMPLATE_DIR = os.path.join(BASE_DIR, '..', 'templates')
+TEMPLATE_DIR = os.path.abspath(os.path.join(BASE_DIR, '..', 'templates'))
 
 
 # ----------------------------------------------------------------------
-# 工具函数（与原版相同）
+# 工具函数
 # ----------------------------------------------------------------------
 def format_file_size(size_bytes):
     """格式化文件大小显示"""
@@ -78,7 +82,7 @@ app.secret_key = os.environ.get('SECRET_KEY', 'your-secret-key-change-this')
 app.config.update(
     SESSION_COOKIE_HTTPONLY=True,
     SESSION_COOKIE_SAMESITE='Lax',
-    SESSION_COOKIE_SECURE=os.environ.get('VERCEL') == '1',  # Vercel 上强制 HTTPS Cookie
+    SESSION_COOKIE_SECURE=os.environ.get('VERCEL') == '1',
 )
 app.jinja_env.globals.update(min=min, max=max)
 
@@ -90,7 +94,7 @@ def to_local_time_filter(utc_time):
 
 
 # ----------------------------------------------------------------------
-# S3 客户端：不再使用全局变量，每个请求从 session 恢复
+# S3 客户端：每个请求从 session 恢复
 # ----------------------------------------------------------------------
 BOTO_CONFIG = Config(
     connect_timeout=5,
@@ -116,7 +120,6 @@ def create_s3_client(access_key, secret_key, region='us-east-1', endpoint_url=No
 
 @lru_cache(maxsize=16)
 def _cached_client(access_key, secret_key, region, endpoint_url):
-    """同一个热实例内复用客户端，减少冷启动开销"""
     return create_s3_client(access_key, secret_key, region, endpoint_url or None)
 
 
@@ -148,11 +151,35 @@ def test_s3_connection(client):
 
 
 # ----------------------------------------------------------------------
+# 诊断路由（问题解决后可删除）
+# ----------------------------------------------------------------------
+@app.route('/_debug')
+def debug_info():
+    def list_dir(path):
+        try:
+            return sorted(os.listdir(path))
+        except Exception as e:
+            return f'无法读取: {e}'
+
+    return jsonify({
+        'request_path': request.path,
+        'python_version': sys.version,
+        'base_dir': BASE_DIR,
+        'template_dir': TEMPLATE_DIR,
+        'template_dir_exists': os.path.isdir(TEMPLATE_DIR),
+        'template_files': list_dir(TEMPLATE_DIR),
+        'base_dir_files': list_dir(BASE_DIR),
+        'parent_dir_files': list_dir(os.path.join(BASE_DIR, '..')),
+        'secret_key_set': 'SECRET_KEY' in os.environ,
+        'on_vercel': os.environ.get('VERCEL') == '1',
+    })
+
+
+# ----------------------------------------------------------------------
 # 页面路由
 # ----------------------------------------------------------------------
 @app.route('/favicon.ico')
 def favicon():
-    # 避免浏览器请求 favicon 触发 404 处理器并闪现“页面未找到”
     return '', 204
 
 
@@ -210,6 +237,7 @@ def buckets():
 
     s3 = get_s3_client()
     if s3 is None:
+        session.pop('aws_configured', None)
         flash('AWS 客户端未初始化，请重新配置', 'error')
         return redirect(url_for('configure'))
 
@@ -255,6 +283,7 @@ def bucket_contents(bucket_name):
 
     s3 = get_s3_client()
     if s3 is None:
+        session.pop('aws_configured', None)
         flash('AWS 客户端未初始化，请重新配置', 'error')
         return redirect(url_for('configure'))
 
@@ -389,6 +418,7 @@ def download_object(bucket_name, object_key):
 
     s3 = get_s3_client()
     if s3 is None:
+        session.pop('aws_configured', None)
         flash('AWS 客户端未初始化，请重新配置', 'error')
         return redirect(url_for('configure'))
 
@@ -412,6 +442,7 @@ def search_page():
 
     s3 = get_s3_client()
     if s3 is None:
+        session.pop('aws_configured', None)
         flash('AWS 客户端未初始化，请重新配置', 'error')
         return redirect(url_for('configure'))
 
@@ -565,6 +596,7 @@ def search_bucket(bucket_name):
 
     s3 = get_s3_client()
     if s3 is None:
+        session.pop('aws_configured', None)
         flash('AWS 客户端未初始化，请重新配置', 'error')
         return redirect(url_for('configure'))
 
@@ -611,16 +643,28 @@ def logout():
     return redirect(url_for('configure'))
 
 
+# ----------------------------------------------------------------------
+# 错误处理：不再重定向（避免死循环），直接显示错误
+# ----------------------------------------------------------------------
 @app.errorhandler(404)
 def not_found_error(error):
-    flash('页面未找到', 'error')
-    return redirect(url_for('index'))
+    return (
+        f"<h3>404 页面未找到</h3>"
+        f"<p>Flask 收到的路径：<code>{escape(request.path)}</code></p>"
+        f"<p><a href='/configure'>去配置页</a> | <a href='/_debug'>查看诊断信息</a></p>"
+    ), 404
 
 
-@app.errorhandler(500)
-def internal_error(error):
-    flash('服务器内部错误', 'error')
-    return redirect(url_for('index'))
+@app.errorhandler(Exception)
+def handle_exception(e):
+    if isinstance(e, HTTPException):
+        return e
+    tb = traceback.format_exc()
+    print(tb)  # 同时写入 Vercel Runtime Logs
+    return (
+        f"<h3>服务器内部错误</h3><pre>{escape(tb)}</pre>"
+        f"<p><a href='/_debug'>查看诊断信息</a></p>"
+    ), 500
 
 
 # 本地调试：python api/index.py
