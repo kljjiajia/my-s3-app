@@ -74,6 +74,16 @@ def sort_items(items, sort_by='date', sort_order='desc', item_type='file'):
         return items
 
 
+def normalize_endpoint(url):
+    """规范化 Endpoint：空值返回 None，缺少协议时补 https://"""
+    url = (url or '').strip()
+    if not url:
+        return None
+    if not url.lower().startswith(('http://', 'https://')):
+        url = 'https://' + url
+    return url.rstrip('/')
+
+
 # ----------------------------------------------------------------------
 # Flask 应用
 # ----------------------------------------------------------------------
@@ -142,12 +152,18 @@ def get_s3_client():
 
 
 def test_s3_connection(client):
-    """测试 S3 连接"""
+    """测试 S3 连接；失败时在提示中附带出错的文件、行号和函数名"""
     try:
         client.list_buckets()
         return True
     except Exception as e:
-        raise Exception(f"S3 连接测试失败: {str(e)}")
+        print(traceback.format_exc())  # 完整堆栈写入 Vercel Runtime Logs
+        frames = traceback.extract_tb(e.__traceback__)
+        where = ''
+        if frames:
+            f = frames[-1]
+            where = f" [{os.path.basename(f.filename)}:{f.lineno} {f.name}]"
+        raise Exception(f"S3 连接测试失败: {type(e).__name__}: {e}{where}") from e
 
 
 # ----------------------------------------------------------------------
@@ -198,15 +214,14 @@ def configure():
         access_key = request.form.get('access_key', '').strip()
         secret_key = request.form.get('secret_key', '').strip()
         region = request.form.get('region', 'us-east-1').strip() or 'us-east-1'
-        endpoint_url = request.form.get('endpoint_url', '').strip()
+        endpoint_url = normalize_endpoint(request.form.get('endpoint_url'))
 
         if not access_key or not secret_key:
             flash('请输入 AWS Access Key ID 和 Secret Access Key', 'error')
             return render_template('configure.html')
 
         try:
-            client = create_s3_client(access_key, secret_key, region,
-                                      endpoint_url if endpoint_url else None)
+            client = create_s3_client(access_key, secret_key, region, endpoint_url)
             test_s3_connection(client)
 
             session['aws_configured'] = True
@@ -214,7 +229,7 @@ def configure():
                 'access_key': access_key,
                 'secret_key': secret_key,
                 'region': region,
-                'endpoint_url': endpoint_url,
+                'endpoint_url': endpoint_url or '',
             }
 
             flash('AWS 配置成功！', 'success')
